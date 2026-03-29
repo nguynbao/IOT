@@ -200,10 +200,22 @@ void setup()
 
   if (!wifi.isConnected())
   {
-    Serial.println("[ERROR] WiFi failed — restarting in 5s");
-    showInfo("WiFi Failed", "Restarting...");
-    delay(5000);
-    ESP.restart(); // Reset thiết bị thay vì treo
+    Serial.println("[ERROR] WiFi failed — Starting AP Mode");
+    showInfo("WiFi Failed", "Starting AP...");
+    
+    wifi.startAPServer();
+    
+    // Show AP info on OLED
+    String apInfo = "IP: 192.168.4.1";
+    showInfo("AP: ESP32-Setup", apInfo.c_str());
+    
+    Serial.println("[INFO] Please connect to 'ESP32-Setup' and navigate to http://192.168.4.1");
+    
+    // Block here to serve web page
+    while (true) {
+        wifi.handleClient();
+        delay(10); // yield to watchdogs
+    }
   }
   Serial.println("[INFO] WiFi connected: " + WiFi.localIP().toString());
   showInfo("WiFi OK", WiFi.localIP().toString().c_str());

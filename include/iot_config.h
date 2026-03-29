@@ -2,8 +2,8 @@
 #define IOT_CONFIG_H
 
 // WiFi
-#define WIFI_SSID "NHA TRA SHAN"
-#define WIFI_PASS "Tiemtramatngu"
+#define WIFI_SSID "CVan"
+#define WIFI_PASS "Camvan115@"
 
 // oled
 #define OLED_I2C_SDA 1
@@ -59,8 +59,8 @@
 #define HREF_GPIO_NUM 7
 #define PCLK_GPIO_NUM 13
 
-// #define SERVER_HOST "https://bot-ai-iot.vercel.app"
-#define SERVER_HOST "http://192.168.1.198:8080"
+#define SERVER_HOST "https://bot-ai-iot.vercel.app"
+// #define SERVER_HOST "http://192.168.1.198:8080"
 #define API_TIMEOUT 10000 // 10 giây
 
 #endif
