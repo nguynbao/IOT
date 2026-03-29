@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎤 Audio Server - Phát lại Mic</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .card {
+            background: white;
+            border-radius: 10px;
+            padding: 25px;
+            margin-bottom: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+
+        .card-title {
+            font-size: 1.5em;
+            color: #333;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .status-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .status-item {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .status-label {
+            font-size: 0.9em;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .status-value {
+            font-size: 1.3em;
+            color: #333;
+            font-weight: bold;
+            margin-top: 5px;
+        }
+
+        .recordings-list {
+            display: grid;
+            gap: 12px;
+        }
+
+        .recording-item {
+            background: #f9f9f9;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+
+        .recording-item:hover {
+            background: #f0f0f0;
+            border-color: #667eea;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+        }
+
+        .recording-info {
+            flex: 1;
+        }
+
+        .recording-name {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .recording-details {
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        .recording-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.95em;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #c82333;
+        }
+
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #218838;
+        }
+
+        .btn-small {
+            padding: 8px 12px;
+            font-size: 0.85em;
+        }
+
+        .audio-player {
+            background: #f0f0f0;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+        }
+
+        audio {
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+
+        .empty-state svg {
+            width: 60px;
+            height: 60px;
+            margin-bottom: 15px;
+            opacity: 0.5;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            background: #667eea;
+            color: white;
+            margin-left: 10px;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+
+        .alert-info {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 1.8em;
+            }
+
+            .recording-item {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .recording-actions {
+                width: 100%;
+                margin-top: 10px;
+            }
+
+            button {
+                flex: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎤 Audio Server</h1>
+            <p>Nhận và phát lại bản thu mic từ ESP32</p>
+        </div>
+
+        <!-- Status -->
+        <div class="card">
+            <div class="status-container">
+                <div class="status-item">
+                    <div class="status-label">Trạng thái Server</div>
+                    <div class="status-value">
+                        <span style="color: #28a745;">● Online</span>
+                    </div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">Tổng Recordings</div>
+                    <div class="status-value" id="total-recordings">0</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">Audio Hiện Tại</div>
+                    <div class="status-value" id="current-audio-name">Chưa có</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Current Audio -->
+        <div class="card">
+            <div class="card-title">🎬 Audio Hiện Tại</div>
+            <div id="current-audio-container">
+                <div class="empty-state">
+                    <p>Chưa có bản thu nào</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recordings List -->
+        <div class="card">
+            <div class="card-title">📁 Danh Sách Recordings <span class="badge" id="recording-count">0</span></div>
+            <button class="btn-primary" onclick="refreshRecordings()" style="margin-bottom: 20px;">
+                🔄 Làm mới
+            </button>
+            <div id="recordings-container" class="recordings-list">
+                <div class="empty-state">
+                    <p>Không có recordings nào</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Images Gallery -->
+        <div class="card">
+            <div class="card-title">🖼 Danh Sách Ảnh <span class="badge" id="image-count">0</span></div>
+            <button class="btn-primary" onclick="refreshImages()" style="margin-bottom: 20px;">
+                🔄 Làm mới
+            </button>
+            <div id="images-container" class="recordings-list">
+                <div class="empty-state">
+                    <p>Không có ảnh nào</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Auto-detect port từ current location
+        const API_BASE = `${window.location.protocol}//${window.location.hostname}:8080`;
+        const API_URL = `${API_BASE}/api`;
+
+        async function refreshRecordings() {
+            try {
+                const response = await fetch(`${API_URL}/recordings`, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+
+                const container = document.getElementById('recordings-container');
+                const count = document.getElementById('recording-count');
+
+                if (!data.recordings || data.recordings.length === 0) {
+                    container.innerHTML = '<div class="empty-state"><p>Không có recordings nào</p></div>';
+                    count.textContent = '0';
+                    document.getElementById('total-recordings').textContent = '0';
+                    return;
+                }
+
+                count.textContent = data.recordings.length;
+                document.getElementById('total-recordings').textContent = data.recordings.length;
+
+                container.innerHTML = data.recordings.map(recording => `
+                    <div class="recording-item">
+                        <div class="recording-info">
+                            <div class="recording-name">📀 ${recording.filename}</div>
+                            <div class="recording-details">
+                                ⏱ ${recording.duration.toFixed(2)}s | 📊 ${(recording.size / 1024).toFixed(2)}KB
+                            </div>
+                        </div>
+                        <div class="recording-actions">
+                            <button class="btn-success btn-small" onclick="playAudio('${recording.filename}')">▶ Phát</button>
+                            <button class="btn-secondary btn-small" onclick="downloadAudio('${recording.filename}')">⬇ Tải</button>
+                            <button class="btn-danger btn-small" onclick="deleteRecording('${recording.filename}')">🗑 Xóa</button>
+                        </div>
+                    </div>
+                `).join('');
+
+            } catch (error) {
+                console.error('Lỗi tải recordings:', error);
+                const container = document.getElementById('recordings-container');
+                container.innerHTML = `<div class="alert alert-error">❌ Lỗi tải danh sách recordings: ${error.message}<br><small>Đảm bảo server chạy trên port 8080</small></div>`;
+            }
+        }
+
+        async function playAudio(filename) {
+            try {
+                const url = `${API_BASE}/api/play/${filename}`;
+                const container = document.getElementById('current-audio-container');
+                container.innerHTML = `
+                    <div class="audio-player">
+                        <strong>🎵 Đang phát: ${filename}</strong>
+                        <audio controls autoplay>
+                            <source src="${url}" type="audio/wav">
+                            Trình duyệt của bạn không hỗ trợ audio player
+                        </audio>
+                    </div>
+                `;
+            } catch (error) {
+                alert('Lỗi phát audio: ' + error.message);
+            }
+        }
+
+        function downloadAudio(filename) {
+            const link = document.createElement('a');
+            link.href = `${API_BASE}/api/play/${filename}`;
+            link.download = filename;
+            link.click();
+        }
+
+        async function deleteRecording(filename) {
+            if (!confirm(`Bạn có chắc chắn muốn xóa ${filename}?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/delete/${filename}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+
+                if (response.ok) {
+                    alert('Đã xóa thành công');
+                    refreshRecordings();
+                } else {
+                    alert('Lỗi xóa file');
+                }
+            } catch (error) {
+                alert('Lỗi xóa file: ' + error.message);
+            }
+        }
+
+        // Refresh danh sách khi trang load
+        refreshRecordings();
+
+        // Auto refresh mỗi 5 giây
+        setInterval(refreshRecordings, 5000);
+
+        // ==================== IMAGE FUNCTIONS ====================
+
+        async function refreshImages() {
+            try {
+                const response = await fetch(`${API_URL}/images`, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                const container = document.getElementById('images-container');
+                const count = document.getElementById('image-count');
+
+                if (!data.images || data.images.length === 0) {
+                    container.innerHTML = '<div class="empty-state"><p>Không có ảnh nào</p></div>';
+                    count.textContent = '0';
+                    return;
+                }
+
+                count.textContent = data.images.length;
+
+                container.innerHTML = data.images.map(image => `
+                    <div class="recording-item">
+                        <div class="recording-info">
+                            <div class="recording-name">🖼 ${image.filename}</div>
+                            <div class="recording-details">
+                                📊 ${(image.size / 1024).toFixed(2)}KB
+                            </div>
+                            <img src="${image.url}" alt="${image.filename}" style="max-width: 200px; max-height: 150px; margin-top: 10px; border-radius: 5px;">
+                        </div>
+                        <div class="recording-actions">
+                            <button class="btn-secondary btn-small" onclick="downloadImage('${image.filename}')">⬇ Tải</button>
+                            <button class="btn-danger btn-small" onclick="deleteImage('${image.filename}')">🗑 Xóa</button>
+                        </div>
+                    </div>
+                `).join('');
+
+            } catch (error) {
+                console.error('Lỗi tải ảnh:', error);
+                const container = document.getElementById('images-container');
+                container.innerHTML = `<div class="alert alert-error">❌ Lỗi tải danh sách ảnh: ${error.message}</div>`;
+            }
+        }
+
+        function downloadImage(filename) {
+            const link = document.createElement('a');
+            link.href = `${API_BASE}/api/image/${filename}`;
+            link.download = filename;
+            link.click();
+        }
+
+        async function deleteImage(filename) {
+            if (!confirm(`Bạn có chắc chắn muốn xóa ${filename}?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/delete-image/${filename}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+
+                if (response.ok) {
+                    alert('Đã xóa ảnh thành công');
+                    refreshImages();
+                } else {
+                    alert('Lỗi xóa ảnh');
+                }
+            } catch (error) {
+                alert('Lỗi xóa ảnh: ' + error.message);
+            }
+        }
+
+        // Refresh ảnh khi trang load
+        refreshImages();
+
+        // Auto refresh ảnh mỗi 5 giây
+        setInterval(refreshImages, 5000);
+
+        // Kiểm tra kết nối server
+        async function checkServerHealth() {
+            try {
+                const response = await fetch(`${API_BASE}/health`, {
+                    method: 'GET'
+                });
+                if (!response.ok) {
+                    console.warn('Server không sẵn sàng');
+                }
+            } catch (error) {
+                console.warn('Không thể kết nối server:', error);
+            }
+        }
+
+        setInterval(checkServerHealth, 10000);
+        checkServerHealth();
+    </script>
+</body>
+</html>

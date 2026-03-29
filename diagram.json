@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "author": "Bảo Nguyễn",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-esp32-s3-devkitc-1", "id": "esp", "top": 9.42, "left": -5.03, "attrs": {} },
+    {
+      "type": "board-ssd1306",
+      "id": "oled1",
+      "top": 31.94,
+      "left": 144.23,
+      "attrs": { "i2c_address": "0x3C" }
+    },
+    { "type": "wokwi-led",
+      "id": "led1",
+      "top": 100,
+      "left": 100,
+      "attrs": { "color": "red" }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r1",
+      "top": -5.56,
+      "left": 60.56,
+      "attrs": { "value": "220" }
+    },
+     {
+      "type": "wokwi-pushbutton",
+      "id": "btn1",
+      "top": -80.2,
+      "left": -57.6,
+      "attrs": { "color": "blue", "xray": "1" }
+    }
+  ],
+   "connections": [
+    [ "esp:TX", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX", "$serialMonitor:TX", "", [] ],
+    [ "oled1:GND", "esp:GND.2", "black", [ "v0" ] ],
+    [ "esp:3V3.1", "oled1:VCC", "green", [ "v-19.38", "h186.77" ] ],
+    [ "esp:8", "oled1:SCL", "green", [ "h287.95", "v-105.6" ] ],
+    [ "esp:9", "oled1:SDA", "green", [ "h311.72", "v-124.98" ] ],
+    [ "esp:4", "r1:1", "green", [ "h-19.25", "v-67.2" ] ],
+    [ "r1:2", "led1:A", "green", [ "h56.4", "v-28.8" ] ],
+    [ "led1:C", "esp:GND.2", "green", [ "h-86", "v67.2" ] ],
+    [ "btn1:1.l", "esp:6", "green", [ "v96", "h57.65" ] ],
+    [ "btn1:2.l", "esp:GND.1", "green", [ "h9.6", "v192.2" ] ]
+  ],
+  "dependencies": {}
+}
