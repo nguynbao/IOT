@@ -504,7 +504,7 @@ bool BackendClient::fetchAndPlayUrl(const String &url, AudioPlayer &player) {
 }
 
 // Face Recognition: Verify if the face matches authorized person
-bool BackendClient::verifyFace(camera_fb_t *fb) {
+bool BackendClient::verifyFace(camera_fb_t *fb, String &outToken) {
   if (!fb || fb->len == 0) {
     Serial.println(" Invalid frame buffer");
     return false;
@@ -575,7 +575,8 @@ bool BackendClient::verifyFace(camera_fb_t *fb) {
   Serial.println(response);
 
   // Parse JSON response to check if face is recognized
-  StaticJsonDocument<256> doc;
+  // JWT tokens can be long, so we allocate a 1024 bytes document.
+  StaticJsonDocument<1024> doc;
   DeserializationError error = deserializeJson(doc, response);
 
   if (error) {
@@ -585,18 +586,23 @@ bool BackendClient::verifyFace(camera_fb_t *fb) {
     return false;
   }
 
-  bool isRecognized = doc["recognized"] | false;
-  String personName = doc["name"] | String("Unknown");
+  // Determine if recognized based on presence of a 'token' field.
+  bool isRecognized = doc.containsKey("token");
+  String personMsg = doc["message"] | String("Access Granted");
 
   if (isRecognized) {
-    Serial.printf(" Face recognized! Welcome %s\n", personName.c_str());
-    // ---- Hiển thị tên người được xác nhận lên OLED ----
+    Serial.printf(" Face recognized! %s\n", personMsg.c_str());
+    
+    // Extract long JWT token
+    outToken = doc["token"].as<String>();
+
+    // ---- Hiển thị thông điệp xác nhận lên OLED ----
     if (_oled) {
-      String welcomeMsg = "Hi, " + personName;
-      _oled->showStatus("Access Granted", welcomeMsg.substring(0, 20).c_str());
+      _oled->showStatus("Access Granted", personMsg.substring(0, 20).c_str());
     }
   } else {
     Serial.println(" Face not recognized - Access Denied");
+    outToken = ""; // Clear token on failure
     // ---- Hiển thị Access Denied lên OLED ----
     if (_oled) {
       _oled->showStatus("Access Denied", "Not recognized");

@@ -11,6 +11,8 @@
 
 #include <esp_heap_caps.h>
 
+#include <Preferences.h>
+
 // ===================================================
 // CẤU HÌNH
 // ===================================================
@@ -122,7 +124,7 @@ void doImageCapture()
 }
 
 // Xác thực mặt → trả true nếu thành công
-bool doFaceAuthentication()
+bool doFaceAuthentication(String &outToken)
 {
   showInfo("Face Check", "Look at camera");
   delay(2000); // Cho người dùng chuẩn bị
@@ -139,7 +141,7 @@ bool doFaceAuthentication()
   showInfo("Verifying", "Please wait...");
 
   // Gửi lên server — BackendClient hiển thị kết quả lên OLED
-  bool recognized = backend.verifyFace(faceFb);
+  bool recognized = backend.verifyFace(faceFb, outToken);
   cam.release(faceFb);
 
   return recognized;
@@ -169,6 +171,17 @@ void setup()
   {
     oled.showStatus("Booting...", "Please wait");
     Serial.println("[INFO] OLED ready");
+  }
+
+  // ---- Check Authentication Token ----
+  Preferences authPrefs;
+  authPrefs.begin("auth", true); // read-only
+  String savedToken = authPrefs.getString("token", "");
+  authPrefs.end();
+
+  if (savedToken.length() > 0) {
+    Serial.printf("[AUTH] Found valid token: %s. Bypassing face authentication.\n", savedToken.c_str());
+    authenticated = true;
   }
 
   // ---- Audio Player ----
@@ -244,7 +257,8 @@ void loop()
   {
     Serial.printf("\n[AUTH] Attempt %d/%d\n", faceAttempts + 1, MAX_FACE_ATTEMPTS);
 
-    bool ok = doFaceAuthentication();
+    String token = "";
+    bool ok = doFaceAuthentication(token);
 
     if (ok)
     {
@@ -252,6 +266,14 @@ void loop()
       Serial.println("[AUTH] SUCCESS — proceeding to main tasks");
       authenticated = true;
       faceAttempts  = 0;
+      
+      // LƯU TOKEN
+      Preferences authPrefs;
+      authPrefs.begin("auth", false); // read-write
+      authPrefs.putString("token", token);
+      authPrefs.end();
+      Serial.println("[AUTH] Token saved to flash.");
+
       delay(2000); // Cho người dùng thấy thông báo
       return;      // Vào loop tiếp theo để chạy các task
     }
@@ -287,8 +309,8 @@ void loop()
   delay(500);
 
   // --- Chụp ảnh và gửi server ---
-  doImageCapture();
-  delay(500);
+  // doImageCapture();
+  // delay(500);
 
   // --- Hoàn thành --- 
   Serial.println("[TASK] All tasks done — waiting before next cycle");
