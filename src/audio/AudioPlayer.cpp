@@ -65,3 +65,15 @@ bool AudioPlayer::playWav(const int16_t *samples, size_t count) {
 
   return true;
 }
+
+void AudioPlayer::setSampleRate(int sampleRate) {
+  if (!_is_init) {
+    begin();
+  }
+  esp_err_t err = i2s_set_clk(AUDIO_I2S_PORT, sampleRate, I2S_BITS_PER_SAMPLE_16BIT, I2S_CHANNEL_MONO);
+  if (err != ESP_OK) {
+    Serial.printf("[AUDIO] setSampleRate failed: %d\n", err);
+  } else {
+    Serial.printf("[AUDIO] Sample rate changed to %d Hz\n", sampleRate);
+  }
+}

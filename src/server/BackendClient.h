@@ -17,7 +17,7 @@ public:
 
     String getText();
     bool sendImage(camera_fb_t *fb);
-    bool sendAudioWav(const int16_t *samples, size_t sampleCount, int sampleRate);
+    bool sendAudioWav(const int16_t *samples, size_t sampleCount, int sampleRate, const String &token, AudioPlayer &player);
 
     // Verify if the face in the image matches authorized person
     // Returns true if face is recognized, false otherwise.

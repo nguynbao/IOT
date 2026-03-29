@@ -6,6 +6,8 @@
 #include <HTTPClient.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
+#include <esp_heap_caps.h>
+#include "mbedtls/base64.h"
 
 static void buildWavHeader(uint8_t *header, uint32_t dataSize,
                            uint32_t sampleRate) {
@@ -78,101 +80,101 @@ String BackendClient::getText() {
   return doc["text"].as<String>();
 }
 
-bool BackendClient::sendImage(camera_fb_t *fb) {
-  if (!fb || fb->len == 0) {
-    Serial.println(" Invalid frame buffer");
-    return false;
-  }
+// bool BackendClient::sendImage(camera_fb_t *fb) {
+//   if (!fb || fb->len == 0) {
+//     Serial.println(" Invalid frame buffer");
+//     return false;
+//   }
 
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println(" WiFi not connected");
-    Serial.printf("   Status: %d\n", WiFi.status());
-    return false;
-  }
+//   if (WiFi.status() != WL_CONNECTED) {
+//     Serial.println(" WiFi not connected");
+//     Serial.printf("   Status: %d\n", WiFi.status());
+//     return false;
+//   }
 
-  Serial.printf(" WiFi connected, IP: %s\n", WiFi.localIP().toString().c_str());
+//   Serial.printf(" WiFi connected, IP: %s\n", WiFi.localIP().toString().c_str());
 
-  HTTPClient http;
-  String url = String(_baseUrl) + String(API_URL_UPLOAD_IMG);
-  Serial.println(" POST " + url);
-  Serial.printf(" Image size: %d bytes\n", fb->len);
+//   HTTPClient http;
+//   String url = String(_baseUrl) + String(API_URL_UPLOAD_IMG);
+//   Serial.println(" POST " + url);
+//   Serial.printf(" Image size: %d bytes\n", fb->len);
 
-  http.begin(url);
-  http.setTimeout(15000);
-  http.setConnectTimeout(5000);
+//   http.begin(url);
+//   http.setTimeout(15000);
+//   http.setConnectTimeout(5000);
 
-  String boundary = "ESP32Boundary";
-  String contentType = "multipart/form-data; boundary=" + boundary;
-  http.addHeader("Content-Type", contentType);
+//   String boundary = "ESP32Boundary";
+//   String contentType = "multipart/form-data; boundary=" + boundary;
+//   http.addHeader("Content-Type", contentType);
 
-  // ---- multipart body ----
-  String head = "--" + boundary +
-                "\r\n"
-                "Content-Disposition: form-data; name=\"image\"; "
-                "filename=\"capture.jpg\"\r\n"
-                "Content-Type: image/jpeg\r\n\r\n";
+//   // ---- multipart body ----
+//   String head = "--" + boundary +
+//                 "\r\n"
+//                 "Content-Disposition: form-data; name=\"image\"; "
+//                 "filename=\"capture.jpg\"\r\n"
+//                 "Content-Type: image/jpeg\r\n\r\n";
 
-  String tail = "\r\n--" + boundary + "--\r\n";
+//   String tail = "\r\n--" + boundary + "--\r\n";
 
-  size_t totalLen = head.length() + fb->len + tail.length();
-  Serial.printf(" Total payload: %d bytes\n", totalLen);
+//   size_t totalLen = head.length() + fb->len + tail.length();
+//   Serial.printf(" Total payload: %d bytes\n", totalLen);
 
-  // ---- allocate buffer ----
-  uint8_t *body = (uint8_t *)malloc(totalLen);
-  if (!body) {
-    Serial.println(" Not enough memory for upload");
-    http.end();
-    return false;
-  }
+//   // ---- allocate buffer ----
+//   uint8_t *body = (uint8_t *)malloc(totalLen);
+//   if (!body) {
+//     Serial.println(" Not enough memory for upload");
+//     http.end();
+//     return false;
+//   }
 
-  memcpy(body, head.c_str(), head.length());
-  memcpy(body + head.length(), fb->buf, fb->len);
-  memcpy(body + head.length() + fb->len, tail.c_str(), tail.length());
+//   memcpy(body, head.c_str(), head.length());
+//   memcpy(body + head.length(), fb->buf, fb->len);
+//   memcpy(body + head.length() + fb->len, tail.c_str(), tail.length());
 
-  Serial.println(" Sending image...");
-  int code = http.POST(body, totalLen);
-  free(body);
+//   Serial.println(" Sending image...");
+//   int code = http.POST(body, totalLen);
+//   free(body);
 
-  if (code <= 0) {
-    Serial.printf(" Upload failed: %s (code: %d)\n",
-                  http.errorToString(code).c_str(), code);
-    Serial.printf("   Error details: %s\n", http.getString().c_str());
-    http.end();
-    return false;
-  }
+//   if (code <= 0) {
+//     Serial.printf(" Upload failed: %s (code: %d)\n",
+//                   http.errorToString(code).c_str(), code);
+//     Serial.printf("   Error details: %s\n", http.getString().c_str());
+//     http.end();
+//     return false;
+//   }
 
-  if (code != 200) {
-    Serial.printf(" Upload failed: HTTP %d\n", code);
-    Serial.println(http.getString());
-    http.end();
-    return false;
-  }
+//   if (code != 200) {
+//     Serial.printf(" Upload failed: HTTP %d\n", code);
+//     Serial.println(http.getString());
+//     http.end();
+//     return false;
+//   }
 
-  Serial.printf(" Upload OK, code: %d\n", code);
-  String responseBody = http.getString();
-  Serial.println(" Response:");
-  Serial.println(responseBody);
+//   Serial.printf(" Upload OK, code: %d\n", code);
+//   String responseBody = http.getString();
+//   Serial.println(" Response:");
+//   Serial.println(responseBody);
 
-  // ---- Hiển thị kết quả lên OLED ----
-  if (_oled) {
-    // Parse JSON để lấy message nếu có
-    StaticJsonDocument<256> doc;
-    DeserializationError err = deserializeJson(doc, responseBody);
-    if (!err && doc.containsKey("message")) {
-      String msg = doc["message"].as<String>();
-      // Cắt chuỗi để vừa với màn hình (tối đa ~20 ký tự/dòng)
-      _oled->showStatus("Image OK", msg.substring(0, 20).c_str());
-    } else {
-      _oled->showStatus("Image Sent", "Upload OK");
-    }
-  }
+//   // ---- Hiển thị kết quả lên OLED ----
+//   if (_oled) {
+//     // Parse JSON để lấy message nếu có
+//     StaticJsonDocument<256> doc;
+//     DeserializationError err = deserializeJson(doc, responseBody);
+//     if (!err && doc.containsKey("message")) {
+//       String msg = doc["message"].as<String>();
+//       // Cắt chuỗi để vừa với màn hình (tối đa ~20 ký tự/dòng)
+//       _oled->showStatus("Image OK", msg.substring(0, 20).c_str());
+//     } else {
+//       _oled->showStatus("Image Sent", "Upload OK");
+//     }
+//   }
 
-  http.end();
-  return true;
-}
+//   http.end();
+//   return true;
+// }
 
 bool BackendClient::sendAudioWav(const int16_t *samples, size_t sampleCount,
-                                 int sampleRate) {
+                                 int sampleRate, const String &token, AudioPlayer &player) {
   if (!samples || sampleCount == 0) {
     Serial.println(" Invalid audio buffer");
     return false;
@@ -212,10 +214,15 @@ bool BackendClient::sendAudioWav(const int16_t *samples, size_t sampleCount,
   Serial.println(" POST " + url);
 
   http.begin(url);
-  http.setTimeout(20000);
+  // Cảnh báo: HTTPClient timeout nhận kiểu uint16_t, tối đa 65535 ~ 65 giây
+  http.setTimeout(65000);
 
   String boundary = "ESP32AudioBoundary";
   http.addHeader("Content-Type", "multipart/form-data; boundary=" + boundary);
+  
+  if (token.length() > 0) {
+    Serial.println(" [HTTP] WARNING: No Token provided in this request!");
+  }
 
   uint32_t wavDataSize = sampleCount * sizeof(int16_t);
   uint8_t wavHeader[44];
@@ -252,6 +259,11 @@ bool BackendClient::sendAudioWav(const int16_t *samples, size_t sampleCount,
 
   memcpy(body + offset, tail.c_str(), tail.length());
 
+  Serial.println(" Waiting for server response (timeout 2 mins)...");
+  if (_oled) {
+    _oled->showStatus("Wait Server..", "Processing...");
+  }
+
   int code = http.POST(body, totalLen);
   free(body);
   free(scaledSamples);
@@ -264,36 +276,104 @@ bool BackendClient::sendAudioWav(const int16_t *samples, size_t sampleCount,
   }
 
   Serial.println(" Audio upload OK");
+  // Cấp phát String có thể lên tới hàng trăm KB, sẽ dùng PSRAM ngầm nếu RAM thường không đủ
   String audioResponse = http.getString();
-  Serial.println(" Response:");
-  Serial.println(audioResponse);
+  Serial.printf(" Response length: %d bytes\n", audioResponse.length());
 
-  // ---- Hiển thị kết quả lên OLED ----
+  // ---- Parse JSON (Filter để tránh OOM) và Hiển thị kết quả lên OLED ----
   if (_oled) {
-    // Parse JSON để lấy transcript hoặc message từ server
-    StaticJsonDocument<512> doc;
-    DeserializationError err = deserializeJson(doc, audioResponse);
-    if (!err) {
-      // Ưu tiên trường "transcript" rồi đến "text", "message"
-      const char *line2 = nullptr;
-      if (doc.containsKey("transcript"))
-        line2 = doc["transcript"];
-      else if (doc.containsKey("text"))
-        line2 = doc["text"];
-      else if (doc.containsKey("message"))
-        line2 = doc["message"];
+    StaticJsonDocument<256> filter;
+    filter["conversation"][0]["role"] = true;
+    filter["conversation"][0]["content"] = true;
+    filter["audio_parameter"]["framerate"] = true;
 
-      if (line2) {
-        // Hiển thị 2 dòng: tiêu đề + nội dung (cắt 20 ký tự)
-        String preview = String(line2).substring(0, 20);
-        _oled->showStatus("Audio OK", preview.c_str());
+    DynamicJsonDocument doc(2048);
+    DeserializationError err = deserializeJson(doc, audioResponse, DeserializationOption::Filter(filter));
+    
+    if (!err) {
+      String userText = "";
+      String botText = "";
+      JsonArray conv = doc["conversation"].as<JsonArray>();
+      for (JsonObject msg : conv) {
+        String role = msg["role"].as<String>();
+        String content = msg["content"].as<String>();
+        content.trim();
+        if (role == "user") {
+          userText = content; // Giữ nguyên toàn bộ chuỗi
+        } else if (role == "assistant") {
+          botText = content; // Giữ nguyên toàn bộ chuỗi
+        }
+      }
+      
+      if (userText.length() > 0) {
+        Serial.printf("[USER]: %s\n", userText.c_str());
+        _oled->clear();
+        _oled->printText(0, 0, (String("You: ") + userText).c_str());
+        delay(2000); // Chờ 2 giây để xem đầy đủ text của user
+        
+        Serial.printf("[BOT]: %s\n", botText.length() > 0 ? botText.c_str() : "...");
+        _oled->clear();
+        _oled->printText(0, 0, (String("Bot: ") + (botText.length() > 0 ? botText : "...")).c_str());
+      } else if (botText.length() > 0) {
+        Serial.printf("[BOT]: %s\n", botText.c_str());
+        _oled->clear();
+        _oled->printText(0, 0, (String("Bot: ") + botText).c_str());
       } else {
         _oled->showStatus("Audio Sent", "Upload OK");
       }
+      
+      int fr = doc["audio_parameter"]["framerate"] | 0;
+      if (fr > 0) {
+        player.setSampleRate(fr);
+      }
     } else {
+      Serial.printf(" JSON Parse Error: %s\n", err.c_str());
       _oled->showStatus("Audio Sent", "Upload OK");
     }
   }
+
+  // ---- Giải mã và phát âm thanh Base64 PCM ----
+  int pcmStart = audioResponse.indexOf("\"pcm_b64\":\"");
+  if (pcmStart != -1) {
+    pcmStart += 11; // Bỏ qua chữ "pcm_b64":"
+    int pcmEnd = audioResponse.indexOf("\"", pcmStart);
+    if (pcmEnd != -1) {
+      size_t b64_len = pcmEnd - pcmStart;
+      Serial.printf(" Found Base64 PCM, len: %d\n", b64_len);
+      
+      size_t decoded_len = 0;
+      // Tính toán buffer đầu ra trước
+      mbedtls_base64_decode(NULL, 0, &decoded_len, (const unsigned char*)(audioResponse.c_str() + pcmStart), b64_len);
+      
+      if (decoded_len > 0) {
+        // Cấp phát trên PSRAM
+        uint8_t *pcm_buf = (uint8_t *)heap_caps_malloc(decoded_len, MALLOC_CAP_SPIRAM);
+        if (pcm_buf) {
+          size_t written = 0;
+          int ret = mbedtls_base64_decode(pcm_buf, decoded_len, &written, (const unsigned char*)(audioResponse.c_str() + pcmStart), b64_len);
+          
+          if (ret == 0) {
+             Serial.printf(" Decoded PCM len: %d bytes\n", written);
+             int16_t *audioSamples = (int16_t*)pcm_buf;
+             size_t frameCount = written / 2;
+             
+             // Phát tiếng qua AudioPlayer (ở sample rate đã set bên trên)
+             player.playWav(audioSamples, frameCount);
+          } else {
+             Serial.printf(" mbedtls_base64_decode error: %d\n", ret);
+             _oled->showStatus("Audio Error", "Decode Fail");
+          }
+          heap_caps_free(pcm_buf);
+        } else {
+          Serial.println(" Failed to allocate PSRAM for PCM decoding");
+          _oled->showStatus("Memory Error", "Out Of Mem");
+        }
+      }
+    }
+  } else {
+    Serial.println(" No pcm_b64 found in response");
+  }
+
 
   http.end();
   return true;
@@ -301,26 +381,26 @@ bool BackendClient::sendAudioWav(const int16_t *samples, size_t sampleCount,
 
 // ==================== Download & Play WAV from Server ====================
 
-bool BackendClient::playWavFromServer(const char *filename,
-                                      AudioPlayer &player) {
-  if (!filename)
-    return false;
-  String fname = String(filename);
-  // Ensure filename ends with .wav
-  if (!fname.endsWith(".wav")) {
-    fname += ".wav";
-  }
-  // Basic URL-encoding for spaces
-  fname.replace(" ", "%20");
+// bool BackendClient::playWavFromServer(const char *filename,
+//                                       AudioPlayer &player) {
+//   if (!filename)
+//     return false;
+//   String fname = String(filename);
+//   // Ensure filename ends with .wav
+//   if (!fname.endsWith(".wav")) {
+//     fname += ".wav";
+//   }
+//   // Basic URL-encoding for spaces
+//   fname.replace(" ", "%20");
 
-  String url = String(_baseUrl) + String(API_URL_PLAY) + fname;
-  return fetchAndPlayUrl(url, player);
-}
+//   String url = String(_baseUrl) + String(API_URL_PLAY) + fname;
+//   return fetchAndPlayUrl(url, player);
+// }
 
-bool BackendClient::playCurrentAudio(AudioPlayer &player) {
-  String url = String(_baseUrl) + String(API_URL_CURRENT);
-  return fetchAndPlayUrl(url, player);
-}
+// bool BackendClient::playCurrentAudio(AudioPlayer &player) {
+//   String url = String(_baseUrl) + String(API_URL_CURRENT);
+//   return fetchAndPlayUrl(url, player);
+// }
 
 bool BackendClient::fetchAndPlayUrl(const String &url, AudioPlayer &player) {
   if (WiFi.status() != WL_CONNECTED) {
@@ -615,127 +695,127 @@ bool BackendClient::verifyFace(camera_fb_t *fb, String &outToken) {
 
 // Streaming variant: read WAV header first, then stream data chunk to I2S in
 // small pieces
-bool BackendClient::streamWavFromServer(const char *filename,
-                                        AudioPlayer &player) {
-  if (!filename)
-    return false;
-  String url = String(_baseUrl) + String(API_URL_PLAY) + String(filename);
-  url.replace(" ", "%20");
+// bool BackendClient::streamWavFromServer(const char *filename,
+//                                         AudioPlayer &player) {
+//   if (!filename)
+//     return false;
+//   String url = String(_baseUrl) + String(API_URL_PLAY) + String(filename);
+//   url.replace(" ", "%20");
 
-  if (WiFi.status() != WL_CONNECTED)
-    return false;
+//   if (WiFi.status() != WL_CONNECTED)
+//     return false;
 
-  Serial.println(" Streaming: " + url);
-  HTTPClient http;
-  http.begin(url);
-  http.setTimeout(10000);
-  int httpCode = http.GET();
+//   Serial.println(" Streaming: " + url);
+//   HTTPClient http;
+//   http.begin(url);
+//   http.setTimeout(10000);
+//   int httpCode = http.GET();
 
-  if (httpCode != 200) {
-    Serial.printf(" HTTP failed: %d\n", httpCode);
-    http.end();
-    return false;
-  }
+//   if (httpCode != 200) {
+//     Serial.printf(" HTTP failed: %d\n", httpCode);
+//     http.end();
+//     return false;
+//   }
 
-  WiFiClient *stream = http.getStreamPtr();
+//   WiFiClient *stream = http.getStreamPtr();
 
-  // 1. Cấp phát buffer cố định trên PSRAM để an toàn cho Heap
-  const size_t READ_CHUNK = 4096;
-  uint8_t *tempBuf = (uint8_t *)ps_malloc(READ_CHUNK);
-  int16_t *outSamples = (int16_t *)ps_malloc(READ_CHUNK); // Chứa mẫu 16-bit
+//   // 1. Cấp phát buffer cố định trên PSRAM để an toàn cho Heap
+//   const size_t READ_CHUNK = 4096;
+//   uint8_t *tempBuf = (uint8_t *)ps_malloc(READ_CHUNK);
+//   int16_t *outSamples = (int16_t *)ps_malloc(READ_CHUNK); // Chứa mẫu 16-bit
 
-  if (!tempBuf || !outSamples) {
-    Serial.println(" PSRAM Alloc failed");
-    if (tempBuf)
-      free(tempBuf);
-    http.end();
-    return false;
-  }
+//   if (!tempBuf || !outSamples) {
+//     Serial.println(" PSRAM Alloc failed");
+//     if (tempBuf)
+//       free(tempBuf);
+//     http.end();
+//     return false;
+//   }
 
-  // 2. Đọc Header (44 bytes đầu) để bỏ qua metadata
-  // (Giả định file WAV PCM chuẩn từ server của bạn)
-  size_t headerSize = 44;
-  stream->readBytes(tempBuf, headerSize);
+//   // 2. Đọc Header (44 bytes đầu) để bỏ qua metadata
+//   // (Giả định file WAV PCM chuẩn từ server của bạn)
+//   size_t headerSize = 44;
+//   stream->readBytes(tempBuf, headerSize);
 
-  // Lấy thông tin cơ bản từ header (offset chuẩn)
-  uint16_t channels = tempBuf[22] | (tempBuf[23] << 8);
-  uint32_t sampleRate = tempBuf[24] | (tempBuf[25] << 8) | (tempBuf[26] << 16) |
-                        (tempBuf[27] << 24);
-  uint16_t bitsPerSample = tempBuf[34] | (tempBuf[35] << 8);
+//   // Lấy thông tin cơ bản từ header (offset chuẩn)
+//   uint16_t channels = tempBuf[22] | (tempBuf[23] << 8);
+//   uint32_t sampleRate = tempBuf[24] | (tempBuf[25] << 8) | (tempBuf[26] << 16) |
+//                         (tempBuf[27] << 24);
+//   uint16_t bitsPerSample = tempBuf[34] | (tempBuf[35] << 8);
 
-  Serial.printf(" WAV: %dHz, %dbit, %d channel(s)\n", sampleRate, bitsPerSample,
-                channels);
+//   Serial.printf(" WAV: %dHz, %dbit, %d channel(s)\n", sampleRate, bitsPerSample,
+//                 channels);
 
-  // 3. Vòng lặp Stream dữ liệu
-  size_t frameBytes = (bitsPerSample / 8) * channels;
-  size_t leftoverLen = 0;
-  unsigned long lastDataTime = millis();
+//   // 3. Vòng lặp Stream dữ liệu
+//   size_t frameBytes = (bitsPerSample / 8) * channels;
+//   size_t leftoverLen = 0;
+//   unsigned long lastDataTime = millis();
 
-  while (http.connected()) {
-    size_t avail = stream->available();
-    if (avail > 0) {
-      // Đọc dữ liệu vào sau phần dư của frame trước đó
-      size_t toRead = min(avail, READ_CHUNK - leftoverLen);
-      int bytesRead = stream->readBytes(tempBuf + leftoverLen, toRead);
+//   while (http.connected()) {
+//     size_t avail = stream->available();
+//     if (avail > 0) {
+//       // Đọc dữ liệu vào sau phần dư của frame trước đó
+//       size_t toRead = min(avail, READ_CHUNK - leftoverLen);
+//       int bytesRead = stream->readBytes(tempBuf + leftoverLen, toRead);
 
-      size_t totalInBuf = bytesRead + leftoverLen;
-      size_t framesToProcess = totalInBuf / frameBytes;
+//       size_t totalInBuf = bytesRead + leftoverLen;
+//       size_t framesToProcess = totalInBuf / frameBytes;
 
-      // Chuyển đổi sang Mono 16-bit để phát
-      // Chỉnh sửa đoạn này trong vòng lặp stream của bạn
-      // Hệ số khuếch đại (Thử từ 2 đến 8, tùy độ to bạn muốn)
-      const float GAIN_FACTOR = 2.5;
+//       // Chuyển đổi sang Mono 16-bit để phát
+//       // Chỉnh sửa đoạn này trong vòng lặp stream của bạn
+//       // Hệ số khuếch đại (Thử từ 2 đến 8, tùy độ to bạn muốn)
+//       const float GAIN_FACTOR = 2.5;
 
-      for (size_t i = 0; i < framesToProcess; i++) {
-        size_t off = i * frameBytes;
-        int32_t sample;
+//       for (size_t i = 0; i < framesToProcess; i++) {
+//         size_t off = i * frameBytes;
+//         int32_t sample;
 
-        if (channels == 1) {
-          sample = (int16_t)(tempBuf[off] | (tempBuf[off + 1] << 8));
-        } else {
-          int16_t left = (int16_t)(tempBuf[off] | (tempBuf[off + 1] << 8));
-          int16_t right = (int16_t)(tempBuf[off + 2] | (tempBuf[off + 3] << 8));
-          sample = (left + right) / 2;
-        }
+//         if (channels == 1) {
+//           sample = (int16_t)(tempBuf[off] | (tempBuf[off + 1] << 8));
+//         } else {
+//           int16_t left = (int16_t)(tempBuf[off] | (tempBuf[off + 1] << 8));
+//           int16_t right = (int16_t)(tempBuf[off + 2] | (tempBuf[off + 3] << 8));
+//           sample = (left + right) / 2;
+//         }
 
-        // Kích âm lượng lên GAIN_FACTOR lần
-        float processedSample = sample * GAIN_FACTOR;
+//         // Kích âm lượng lên GAIN_FACTOR lần
+//         float processedSample = sample * GAIN_FACTOR;
 
-        // Soft Limiting: Giúp tiếng không bị "bể" khi gặp đoạn cao trào
-        if (processedSample > 32000)
-          processedSample = 32000;
-        if (processedSample < -32000)
-          processedSample = -32000;
+//         // Soft Limiting: Giúp tiếng không bị "bể" khi gặp đoạn cao trào
+//         if (processedSample > 32000)
+//           processedSample = 32000;
+//         if (processedSample < -32000)
+//           processedSample = -32000;
 
-        outSamples[i] = (int16_t)processedSample;
-      }
+//         outSamples[i] = (int16_t)processedSample;
+//       }
 
-      // Phát qua I2S
-      player.playWav(outSamples, framesToProcess);
+//       // Phát qua I2S
+//       player.playWav(outSamples, framesToProcess);
 
-      // Xử lý dữ liệu dư không đủ 1 frame
-      leftoverLen = totalInBuf % frameBytes;
-      if (leftoverLen > 0) {
-        memmove(tempBuf, tempBuf + (framesToProcess * frameBytes), leftoverLen);
-      }
-      lastDataTime = millis();
-    } else {
-      if (millis() - lastDataTime > 3000)
-        break; // Timeout nếu không có dữ liệu
-      delay(1);
-    }
-  }
+//       // Xử lý dữ liệu dư không đủ 1 frame
+//       leftoverLen = totalInBuf % frameBytes;
+//       if (leftoverLen > 0) {
+//         memmove(tempBuf, tempBuf + (framesToProcess * frameBytes), leftoverLen);
+//       }
+//       lastDataTime = millis();
+//     } else {
+//       if (millis() - lastDataTime > 3000)
+//         break; // Timeout nếu không có dữ liệu
+//       delay(1);
+//     }
+//   }
 
-  // 4. Dọn dẹp bộ nhớ
-  free(tempBuf);
-  free(outSamples);
-  http.end();
-  Serial.println(" Streaming finished");
+//   // 4. Dọn dẹp bộ nhớ
+//   free(tempBuf);
+//   free(outSamples);
+//   http.end();
+//   Serial.println(" Streaming finished");
 
-  // ---- Hiển thị trạng thái hoàn thành lên OLED ----
-  if (_oled) {
-    _oled->showStatus("Playback Done", "Stream finished");
-  }
+//   // ---- Hiển thị trạng thái hoàn thành lên OLED ----
+//   if (_oled) {
+//     _oled->showStatus("Playback Done", "Stream finished");
+//   }
 
-  return true;
-}
+//   return true;
+// }

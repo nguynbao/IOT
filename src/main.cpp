@@ -37,6 +37,7 @@ AudioPlayer   audioPlayer;
 // ===================================================
 static bool authenticated = false;   // true sau khi xác thực mặt thành công
 static int  faceAttempts  = 0;       // Số lần thử nhận diện
+static String activeAuthToken = "";  // Token JWT dùng để gửi kèm các request
 
 // ===================================================
 // HÀM PHỤ TRỢ
@@ -86,13 +87,19 @@ void doAudioCapture()
 
   // Gửi lên server — BackendClient sẽ tự hiển thị response lên OLED
   showInfo("Uploading", "Sending audio...");
-  bool ok = backend.sendAudioWav(audioBuf, n, SAMPLE_RATE);
+  Serial.printf("[MAIN] Sending Audio. Token: %s\n", activeAuthToken.c_str());
+  bool ok = backend.sendAudioWav(audioBuf, n, SAMPLE_RATE, activeAuthToken, audioPlayer);
   heap_caps_free(audioBuf);
 
   if (!ok)
   {
     Serial.println("[ERROR] Audio upload failed");
     showInfo("Upload Fail", "Try again later");
+  }
+  else
+  {
+    // Upload thành công. OLED đã được BackendClient cập nhật thông báo JSON.
+    Serial.println("[MAIN] Upload complete.");
   }
 }
 
@@ -179,9 +186,15 @@ void setup()
   String savedToken = authPrefs.getString("token", "");
   authPrefs.end();
 
-  if (savedToken.length() > 0) {
-    Serial.printf("[AUTH] Found valid token: %s. Bypassing face authentication.\n", savedToken.c_str());
+  if (savedToken.length() > 20) {
+    Serial.printf("[AUTH] Found valid JWT token (len %d). Bypassing face authentication.\n", savedToken.length());
+    activeAuthToken = savedToken;
     authenticated = true;
+  } else if (savedToken.length() > 0) {
+    Serial.printf("[AUTH] Found invalid or expired token (len %d). Clearing flash...\n", savedToken.length());
+    authPrefs.begin("auth", false); // read-write
+    authPrefs.remove("token");
+    authPrefs.end();
   }
 
   // ---- Audio Player ----
@@ -265,6 +278,7 @@ void loop()
       // Server đã hiển thị "Access Granted + tên" lên OLED qua BackendClient
       Serial.println("[AUTH] SUCCESS — proceeding to main tasks");
       authenticated = true;
+      activeAuthToken = token;
       faceAttempts  = 0;
       
       // LƯU TOKEN
@@ -308,19 +322,11 @@ void loop()
   doAudioCapture();
   delay(500);
 
-  // --- Chụp ảnh và gửi server ---
-  // doImageCapture();
-  // delay(500);
-
   // --- Hoàn thành --- 
   Serial.println("[TASK] All tasks done — waiting before next cycle");
-  showInfo("Done!", "All tasks OK");
+  showInfo("Done!", "Waiting 5s...");
 
-  // Reset để xác thực lại ở vòng tiếp theo (hoặc giữ authenticated = true
-  // nếu muốn tiếp tục mà không xác thực lại mỗi vòng)
-  // authenticated = false; // Bỏ comment nếu muốn xác thực lại mỗi chu kỳ
-
-  // Chờ trước khi lặp lại — tránh watchdog timer reset
+  // Chờ 5 giây trước khi thực hiện lần thu âm tiếp theo
   delay(5000);
 }
 

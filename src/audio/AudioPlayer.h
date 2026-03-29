@@ -11,6 +11,7 @@ public:
     bool begin();
     void end();
     bool playWav(const int16_t* samples, size_t count);
+    void setSampleRate(int sampleRate);
 
 private:
   bool _is_init = false;
