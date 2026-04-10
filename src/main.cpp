@@ -248,9 +248,13 @@ void setup()
   delay(500);
 
   // ---- Camera ----
-  Serial.println("[INIT] Camera...");
-  cam.init();
-  Serial.println("[INFO] Camera ready");
+  if (!authenticated) {
+    Serial.println("[INIT] Camera...");
+    cam.init();
+    Serial.println("[INFO] Camera ready");
+  } else {
+    Serial.println("[INFO] Skipping Camera init (already authenticated).");
+  }
 
   showInfo("Ready", "System OK");
   delay(1000);
@@ -287,6 +291,10 @@ void loop()
       authPrefs.putString("token", token);
       authPrefs.end();
       Serial.println("[AUTH] Token saved to flash.");
+      
+      // TẮT CAMERA: Ngắt luồng chạy ngầm của Camera để tránh tràn DMA Buffer (EV-EOF-OVF) gây sụp nguồn
+      esp_camera_deinit();
+      Serial.println("[INFO] Camera shut down to save CPU for Audio/WiFi.");
 
       delay(2000); // Cho người dùng thấy thông báo
       return;      // Vào loop tiếp theo để chạy các task

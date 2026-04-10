@@ -7,6 +7,8 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <esp_heap_caps.h>
+#include <esp_heap_caps.h>
+#include <esp_task_wdt.h>
 #include "mbedtls/base64.h"
 
 static void buildWavHeader(uint8_t *header, uint32_t dataSize,
@@ -173,6 +175,82 @@ String BackendClient::getText() {
 //   return true;
 // }
 
+// ==============================================
+// MultipartStream: Đẩy byte từ các con trỏ tĩnh,
+// KHÔNG dùng Malloc cho Buffer gộp, siêu tiết kiệm bộ nhớ!
+// ==============================================
+class MultipartStream : public Stream {
+  const char *_head; size_t _head_len;
+  const uint8_t *_wavHeader;
+  const uint8_t *_samples; size_t _samples_len;
+  const char *_tail; size_t _tail_len;
+  size_t _pos; size_t _totalLen;
+
+public:
+  MultipartStream(const char *head, size_t head_len, const uint8_t *wavHeader, 
+                  const uint8_t *samples, size_t samples_len, const char *tail, size_t tail_len) {
+    _head = head; _head_len = head_len;
+    _wavHeader = wavHeader;
+    _samples = samples; _samples_len = samples_len;
+    _tail = tail; _tail_len = tail_len;
+    _totalLen = _head_len + 44 + _samples_len + _tail_len;
+    _pos = 0;
+  }
+
+  virtual int available() { return _totalLen - _pos; }
+  virtual int read() { return -1; }
+
+  virtual size_t readBytes(uint8_t *buffer, size_t length) {
+    size_t to_read = _totalLen - _pos;
+    if (to_read > length) to_read = length;
+    if (to_read == 0) return 0;
+
+    size_t bytes_read = 0;
+    while (bytes_read < to_read) {
+      if (_pos < _head_len) {
+        size_t chunk = _head_len - _pos;
+        if (chunk > to_read - bytes_read) chunk = to_read - bytes_read;
+        memcpy(buffer + bytes_read, _head + _pos, chunk);
+        _pos += chunk; bytes_read += chunk;
+      }
+      else if (_pos < _head_len + 44) {
+        size_t off = _pos - _head_len;
+        size_t chunk = 44 - off;
+        if (chunk > to_read - bytes_read) chunk = to_read - bytes_read;
+        memcpy(buffer + bytes_read, _wavHeader + off, chunk);
+        _pos += chunk; bytes_read += chunk;
+      }
+      else if (_pos < _head_len + 44 + _samples_len) {
+        size_t off = _pos - _head_len - 44;
+        size_t chunk = _samples_len - off;
+        if (chunk > to_read - bytes_read) chunk = to_read - bytes_read;
+        memcpy(buffer + bytes_read, _samples + off, chunk);
+        _pos += chunk; bytes_read += chunk;
+      }
+      else {
+        size_t off = _pos - _head_len - 44 - _samples_len;
+        size_t chunk = _tail_len - off;
+        if (chunk > to_read - bytes_read) chunk = to_read - bytes_read;
+        memcpy(buffer + bytes_read, _tail + off, chunk);
+        _pos += chunk; bytes_read += chunk;
+      }
+    }
+    
+    // Nuôi WDT
+    delay(2);
+    esp_task_wdt_reset();
+    return to_read;
+  }
+  
+  virtual size_t readBytes(char *buffer, size_t length) {
+    return readBytes((uint8_t *)buffer, length);
+  }
+  virtual int peek() { return -1; }
+  virtual void flush() {}
+  virtual size_t write(uint8_t) { return 0; }
+  virtual size_t write(const uint8_t *buffer, size_t size) { return 0; }
+};
+
 bool BackendClient::sendAudioWav(const int16_t *samples, size_t sampleCount,
                                  int sampleRate, const String &token, AudioPlayer &player) {
   if (!samples || sampleCount == 0) {
@@ -186,7 +264,8 @@ bool BackendClient::sendAudioWav(const int16_t *samples, size_t sampleCount,
   }
 
   // Scale PCM to ensure amplitude > 3000
-  int16_t *scaledSamples = (int16_t *)malloc(sampleCount * sizeof(int16_t));
+  // Cấp phát trong PSRAM để KHÔNG LÀM CRASH MAIN RAM!
+  int16_t *scaledSamples = (int16_t *)heap_caps_malloc(sampleCount * sizeof(int16_t), MALLOC_CAP_SPIRAM);
   if (!scaledSamples) {
     Serial.println(" Not enough memory for scaling");
     return false;
@@ -239,36 +318,19 @@ bool BackendClient::sendAudioWav(const int16_t *samples, size_t sampleCount,
 
   String tail = "\r\n--" + boundary + "--\r\n";
 
-  size_t totalLen =
-      head.length() + sizeof(wavHeader) + wavDataSize + tail.length();
-
-  uint8_t *body = (uint8_t *)malloc(totalLen);
-  if (!body) {
-    Serial.println(" Not enough memory for audio upload");
-    free(scaledSamples);
-    http.end();
-    return false;
-  }
-
-  size_t offset = 0;
-  memcpy(body + offset, head.c_str(), head.length());
-  offset += head.length();
-
-  memcpy(body + offset, wavHeader, sizeof(wavHeader));
-  offset += sizeof(wavHeader);
-
-  memcpy(body + offset, scaledSamples, wavDataSize);
-  offset += wavDataSize;
-
-  memcpy(body + offset, tail.c_str(), tail.length());
+  size_t totalLen = head.length() + sizeof(wavHeader) + wavDataSize + tail.length();
 
   Serial.println(" Waiting for server response (timeout 2 mins)...");
   if (_oled) {
     _oled->showStatus("Wait Server..", "Processing...");
   }
 
-  int code = http.POST(body, totalLen);
-  free(body);
+  // Khởi tạo MultipartStream trực tiếp từ con trỏ, BỎ QUA việc dùng mảng ghép nối `body` gây lag RAM!
+  MultipartStream wdtStream(head.c_str(), head.length(), wavHeader,
+                            (const uint8_t*)scaledSamples, wavDataSize,
+                            tail.c_str(), tail.length());
+
+  int code = http.sendRequest("POST", &wdtStream, totalLen);
   free(scaledSamples);
 
   if (code != 200) {
@@ -336,11 +398,15 @@ bool BackendClient::sendAudioWav(const int16_t *samples, size_t sampleCount,
   }
 
   // ---- Giải mã và phát âm thanh Base64 PCM ----
-  int pcmStart = audioResponse.indexOf("\"pcm_b64\":\"");
+  int pcmStart = audioResponse.indexOf("\"pcm_b64\"");
   if (pcmStart != -1) {
-    pcmStart += 11; // Bỏ qua chữ "pcm_b64":"
-    int pcmEnd = audioResponse.indexOf("\"", pcmStart);
-    if (pcmEnd != -1) {
+    pcmStart = audioResponse.indexOf(":", pcmStart); // Tìm dấu hai chấm
+    if (pcmStart != -1) {
+      pcmStart = audioResponse.indexOf("\"", pcmStart); // Tìm dấu ngoặc kép bắt đầu chuỗi b64
+      if (pcmStart != -1) {
+        pcmStart += 1; // Bỏ qua dấu ngoặc kép
+        int pcmEnd = audioResponse.indexOf("\"", pcmStart); // Tìm dấu ngoặc kép kết thúc
+        if (pcmEnd != -1) {
       size_t b64_len = pcmEnd - pcmStart;
       Serial.printf(" Found Base64 PCM, len: %d\n", b64_len);
       
@@ -373,6 +439,8 @@ bool BackendClient::sendAudioWav(const int16_t *samples, size_t sampleCount,
         }
       }
     }
+      } // End of if (pcmStart != -1) (IF 3)
+    } // End of if (pcmStart != -1) (IF 2)
   } else {
     Serial.println(" No pcm_b64 found in response");
   }
