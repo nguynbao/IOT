@@ -332,10 +332,10 @@ void loop()
 
   // --- Hoàn thành --- 
   Serial.println("[TASK] All tasks done — waiting before next cycle");
-  showInfo("Done!", "Waiting 5s...");
+  showInfo("Done!", "Waiting 20s...");
 
   // Chờ 5 giây trước khi thực hiện lần thu âm tiếp theo
-  delay(5000);
+  delay(20000);
 }
 
 // ================= END =================

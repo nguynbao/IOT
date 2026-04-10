@@ -252,7 +252,8 @@ public:
 };
 
 bool BackendClient::sendAudioWav(const int16_t *samples, size_t sampleCount,
-                                 int sampleRate, const String &token, AudioPlayer &player) {
+                                 int sampleRate, const String &token,
+                                 AudioPlayer &player) {
   if (!samples || sampleCount == 0) {
     Serial.println(" Invalid audio buffer");
     return false;
@@ -265,7 +266,8 @@ bool BackendClient::sendAudioWav(const int16_t *samples, size_t sampleCount,
 
   // Scale PCM to ensure amplitude > 3000
   // Cấp phát trong PSRAM để KHÔNG LÀM CRASH MAIN RAM!
-  int16_t *scaledSamples = (int16_t *)heap_caps_malloc(sampleCount * sizeof(int16_t), MALLOC_CAP_SPIRAM);
+  int16_t *scaledSamples = (int16_t *)heap_caps_malloc(
+      sampleCount * sizeof(int16_t), MALLOC_CAP_SPIRAM);
   if (!scaledSamples) {
     Serial.println(" Not enough memory for scaling");
     return false;
@@ -298,7 +300,7 @@ bool BackendClient::sendAudioWav(const int16_t *samples, size_t sampleCount,
 
   String boundary = "ESP32AudioBoundary";
   http.addHeader("Content-Type", "multipart/form-data; boundary=" + boundary);
-  
+
   if (token.length() > 0) {
     http.addHeader("token", "Bearer " + token);
     Serial.println(" [HTTP] Token attached to request.");
@@ -318,16 +320,18 @@ bool BackendClient::sendAudioWav(const int16_t *samples, size_t sampleCount,
 
   String tail = "\r\n--" + boundary + "--\r\n";
 
-  size_t totalLen = head.length() + sizeof(wavHeader) + wavDataSize + tail.length();
+  size_t totalLen =
+      head.length() + sizeof(wavHeader) + wavDataSize + tail.length();
 
   Serial.println(" Waiting for server response (timeout 2 mins)...");
   if (_oled) {
     _oled->showStatus("Wait Server..", "Processing...");
   }
 
-  // Khởi tạo MultipartStream trực tiếp từ con trỏ, BỎ QUA việc dùng mảng ghép nối `body` gây lag RAM!
+  // Khởi tạo MultipartStream trực tiếp từ con trỏ, BỎ QUA việc dùng mảng ghép
+  // nối `body` gây lag RAM!
   MultipartStream wdtStream(head.c_str(), head.length(), wavHeader,
-                            (const uint8_t*)scaledSamples, wavDataSize,
+                            (const uint8_t *)scaledSamples, wavDataSize,
                             tail.c_str(), tail.length());
 
   int code = http.sendRequest("POST", &wdtStream, totalLen);
@@ -335,129 +339,152 @@ bool BackendClient::sendAudioWav(const int16_t *samples, size_t sampleCount,
 
   if (code != 200) {
     Serial.printf(" Audio upload failed: %d\n", code);
-    Serial.println(http.getString());
+    if (code == -11) {
+      Serial.println(" Lỗi -11: Vercel quá tải không phản hồi trong 65s!");
+    } else {
+      Serial.println(" HTTP Lỗi!");
+    }
     http.end();
     return false;
   }
 
-  Serial.println(" Audio upload OK");
-  // Cấp phát String có thể lên tới hàng trăm KB, sẽ dùng PSRAM ngầm nếu RAM thường không đủ
-  String audioResponse = http.getString();
-  Serial.printf(" Response length: %d bytes\n", audioResponse.length());
+  Serial.println(" Audio upload OK. Parsing JSON response (stream mode)...");
 
-  // ---- Parse JSON (Filter để tránh OOM) và Hiển thị kết quả lên OLED ----
-  if (_oled) {
-    StaticJsonDocument<256> filter;
-    filter["conversation"][0]["role"] = true;
-    filter["conversation"][0]["content"] = true;
-    filter["audio_parameter"]["framerate"] = true;
+  // -----------------------------------------------------------------------
+  // KHÔNG dùng ArduinoJson vì cần cấp phát 600KB LIÊN TỤC → NoMemory.
+  // Thay bằng parser thủ công: đọc raw HTTP body vào PSRAM, sau đó parse
+  // bằng strstr/sscanf — zero extra allocation.
+  // -----------------------------------------------------------------------
 
-    DynamicJsonDocument doc(2048);
-    DeserializationError err = deserializeJson(doc, audioResponse, DeserializationOption::Filter(filter));
-    
-    if (!err) {
-      String userText = "";
-      String botText = "";
-      JsonArray conv = doc["conversation"].as<JsonArray>();
-      for (JsonObject msg : conv) {
-        String role = msg["role"].as<String>();
-        String content = msg["content"].as<String>();
-        content.trim();
-        if (role == "user") {
-          userText = content; // Giữ nguyên toàn bộ chuỗi
-        } else if (role == "assistant") {
-          botText = content; // Giữ nguyên toàn bộ chuỗi
-        }
-      }
-      
-      if (userText.length() > 0) {
-        Serial.printf("[USER]: %s\n", userText.c_str());
-        _oled->clear();
-        _oled->printText(0, 0, (String("You: ") + userText).c_str());
-        delay(2000); // Chờ 2 giây để xem đầy đủ text của user
-        
-        Serial.printf("[BOT]: %s\n", botText.length() > 0 ? botText.c_str() : "...");
-        _oled->clear();
-        _oled->printText(0, 0, (String("Bot: ") + (botText.length() > 0 ? botText : "...")).c_str());
-      } else if (botText.length() > 0) {
-        Serial.printf("[BOT]: %s\n", botText.c_str());
-        _oled->clear();
-        _oled->printText(0, 0, (String("Bot: ") + botText).c_str());
-      } else {
-        _oled->showStatus("Audio Sent", "Upload OK");
-      }
-      
-      int fr = doc["audio_parameter"]["framerate"] | 0;
-      if (fr > 0) {
-        player.setSampleRate(fr);
-      }
+  // --- Bước 1: Đọc raw JSON body vào PSRAM ---
+  WiFiClient *jsonStream = http.getStreamPtr();
+  const size_t JSON_BUF_MAX = 700 * 1024; // 700KB đủ cho ~430KB Base64 + overhead
+  char *jsonBuf = (char *)heap_caps_malloc(JSON_BUF_MAX + 1, MALLOC_CAP_SPIRAM);
+  if (!jsonBuf) {
+    Serial.println(" Cannot alloc PSRAM for JSON buffer");
+    if (_oled) _oled->showStatus("Mem Error", "No PSRAM");
+    http.end();
+    return false;
+  }
+
+  size_t jsonLen = 0;
+  unsigned long t0 = millis();
+  while ((millis() - t0) < 30000UL) { // timeout 30s đọc body
+    if (jsonStream->available()) {
+      int c = jsonStream->read();
+      if (c < 0) break;
+      if (jsonLen < JSON_BUF_MAX)
+        jsonBuf[jsonLen++] = (char)c;
+    } else if (!http.connected()) {
+      break;
     } else {
-      Serial.printf(" JSON Parse Error: %s\n", err.c_str());
-      _oled->showStatus("Audio Sent", "Upload OK");
+      delay(1);
+    }
+  }
+  jsonBuf[jsonLen] = '\0';
+  http.end(); // Giải phóng network ngay
+
+  Serial.printf(" JSON body size: %u bytes\n", jsonLen);
+
+  if (jsonLen == 0) {
+    Serial.println(" Empty response body");
+    heap_caps_free(jsonBuf);
+    return false;
+  }
+
+  // --- Bước 2: Parse thủ công bằng strstr / sscanf ---
+  // Tìm "bot_response":"..."
+  char bot_response[256] = "";
+  const char *p = strstr(jsonBuf, "\"bot_response\"");
+  if (p) {
+    p = strchr(p, ':');
+    if (p) {
+      p++;
+      while (*p == ' ' || *p == '"') p++;
+      size_t i = 0;
+      while (*p && *p != '"' && i < sizeof(bot_response) - 1)
+        bot_response[i++] = *p++;
+      bot_response[i] = '\0';
     }
   }
 
-  // ---- Giải mã và phát âm thanh Base64 PCM ----
-  int pcmStart = audioResponse.indexOf("\"pcm_b64\"");
-  if (pcmStart != -1) {
-    pcmStart = audioResponse.indexOf(":", pcmStart); // Tìm dấu hai chấm
-    if (pcmStart != -1) {
-      pcmStart = audioResponse.indexOf("\"", pcmStart); // Tìm dấu ngoặc kép bắt đầu chuỗi b64
-      if (pcmStart != -1) {
-        pcmStart += 1; // Bỏ qua dấu ngoặc kép
-        int pcmEnd = audioResponse.indexOf("\"", pcmStart); // Tìm dấu ngoặc kép kết thúc
-        if (pcmEnd != -1) {
-      size_t b64_len = pcmEnd - pcmStart;
-      Serial.printf(" Found Base64 PCM, len: %d\n", b64_len);
-      
-      // -- IN RA SERIAL ĐỂ DEBUG (python script trên MAC sẽ bắt lại và lưu) --
-      Serial.println("\n---B64_RESPONSE_START---");
-      // In theo tưng cục nhỏ để bô nhớ đệm Serial không bị tràn
-      for (size_t i = 0; i < b64_len; i += 200) {
-        size_t chunk_len = (i + 200 < b64_len) ? 200 : (b64_len - i);
-        Serial.print(audioResponse.substring(pcmStart + i, pcmStart + i + chunk_len));
-      }
-      Serial.println("\n---B64_RESPONSE_END---");
+  // Tìm "framerate": N, "n_channels": N, "sampwidth": N
+  int fr = 0, n_channels = 1, sampwidth = 2;
+  const char *pFr = strstr(jsonBuf, "\"framerate\"");
+  if (pFr) { pFr = strchr(pFr, ':'); if (pFr) sscanf(pFr + 1, " %d", &fr); }
+  const char *pCh = strstr(jsonBuf, "\"n_channels\"");
+  if (pCh) { pCh = strchr(pCh, ':'); if (pCh) sscanf(pCh + 1, " %d", &n_channels); }
+  const char *pSw = strstr(jsonBuf, "\"sampwidth\"");
+  if (pSw) { pSw = strchr(pSw, ':'); if (pSw) sscanf(pSw + 1, " %d", &sampwidth); }
 
-      size_t decoded_len = 0;
-      // Tính toán buffer đầu ra trước
-      mbedtls_base64_decode(NULL, 0, &decoded_len, (const unsigned char*)(audioResponse.c_str() + pcmStart), b64_len);
-      
-      if (decoded_len > 0) {
-        // Cấp phát trên PSRAM
-        uint8_t *pcm_buf = (uint8_t *)heap_caps_malloc(decoded_len, MALLOC_CAP_SPIRAM);
-        if (pcm_buf) {
-          size_t written = 0;
-          int ret = mbedtls_base64_decode(pcm_buf, decoded_len, &written, (const unsigned char*)(audioResponse.c_str() + pcmStart), b64_len);
-          
-          if (ret == 0) {
-             Serial.printf(" Decoded PCM len: %d bytes\n", written);
-             int16_t *audioSamples = (int16_t*)pcm_buf;
-             size_t frameCount = written / 2;
-             
-             // Phát tiếng qua AudioPlayer (ở sample rate đã set bên trên)
-             player.playWav(audioSamples, frameCount);
-          } else {
-             Serial.printf(" mbedtls_base64_decode error: %d\n", ret);
-             _oled->showStatus("Audio Error", "Decode Fail");
-          }
-          heap_caps_free(pcm_buf);
-        } else {
-          Serial.println(" Failed to allocate PSRAM for PCM decoding");
-          _oled->showStatus("Memory Error", "Out Of Mem");
-        }
+  // Tìm "pcm_b64":"..." — chỉ lấy con trỏ + độ dài, KHÔNG copy thêm
+  const char *pcm_b64_start = nullptr;
+  size_t b64_len = 0;
+  const char *pB64 = strstr(jsonBuf, "\"pcm_b64\"");
+  if (pB64) {
+    pB64 = strchr(pB64, ':');
+    if (pB64) {
+      pB64++;
+      while (*pB64 == ' ') pB64++;
+      if (*pB64 == '"') {
+        pB64++; // bỏ dấu " mở
+        pcm_b64_start = pB64;
+        const char *pEnd = strchr(pB64, '"');
+        if (pEnd) b64_len = pEnd - pB64;
       }
     }
-      } // End of if (pcmStart != -1) (IF 3)
-    } // End of if (pcmStart != -1) (IF 2)
+  }
+
+  Serial.printf(" Bot: %s\n", bot_response);
+  Serial.printf(" Base64 length: %u\n", b64_len);
+  Serial.printf(" framerate=%d  channels=%d  sampwidth=%d\n", fr, n_channels, sampwidth);
+
+  if (fr > 0) player.setSampleRate(fr);
+
+  if (pcm_b64_start && b64_len > 0) {
+    // -- IN RA SERIAL ĐỂ DEBUG --
+    Serial.println("\n---B64_RESPONSE_START---");
+    for (size_t i = 0; i < b64_len; i += 200) {
+      size_t chunk = (i + 200 < b64_len) ? 200 : (b64_len - i);
+      Serial.write((const uint8_t *)(pcm_b64_start + i), chunk);
+    }
+    Serial.println("\n---B64_RESPONSE_END---");
+
+    // Giải mã Base64 → PCM buffer trên PSRAM
+    size_t decoded_len = 0;
+    mbedtls_base64_decode(NULL, 0, &decoded_len,
+                          (const unsigned char *)pcm_b64_start, b64_len);
+
+    if (decoded_len > 0) {
+      uint8_t *pcm_buf = (uint8_t *)heap_caps_malloc(decoded_len, MALLOC_CAP_SPIRAM);
+      if (pcm_buf) {
+        size_t written = 0;
+        int ret = mbedtls_base64_decode(pcm_buf, decoded_len, &written,
+                                        (const unsigned char *)pcm_b64_start,
+                                        b64_len);
+        if (ret == 0) {
+          Serial.printf(" Decoded PCM: %u bytes\n", written);
+          int16_t *audioSamples = (int16_t *)pcm_buf;
+          size_t frameCount = written / (sampwidth * n_channels);
+          player.playWav(audioSamples, frameCount);
+        } else {
+          Serial.printf(" Base64 decode error: %d\n", ret);
+          if (_oled) _oled->showStatus("Audio Error", "Decode Fail");
+        }
+        heap_caps_free(pcm_buf);
+      } else {
+        Serial.println(" No PSRAM for PCM buffer");
+        if (_oled) _oled->showStatus("Memory Error", "Out Of Mem");
+      }
+    }
   } else {
     Serial.println(" No pcm_b64 found in response");
   }
 
-
-  http.end();
+  heap_caps_free(jsonBuf);
   return true;
 }
+
 
 // ==================== Download & Play WAV from Server ====================
 
