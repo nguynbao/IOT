@@ -207,6 +207,9 @@ void setup()
   else
   {
     Serial.println("[INFO] Audio ready");
+    // Tiếng bíp xác nhận loa hoạt động (1kHz, 200ms)
+    audioPlayer.playBeep(1000, 200);
+    Serial.println("[INFO] Boot beep played");
   }
 
   // ---- Gắn OLED vào BackendClient ----

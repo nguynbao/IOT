@@ -11,6 +11,7 @@ public:
     bool begin();
     void end();
     bool playWav(const int16_t* samples, size_t count);
+    void playBeep(int freqHz = 1000, int durationMs = 200);
     void setSampleRate(int sampleRate);
 
 private:

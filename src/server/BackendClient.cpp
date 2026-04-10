@@ -467,6 +467,7 @@ bool BackendClient::sendAudioWav(const int16_t *samples, size_t sampleCount,
           int16_t *audioSamples = (int16_t *)pcm_buf;
           size_t frameCount = written / (sampwidth * n_channels);
           player.playWav(audioSamples, frameCount);
+          Serial.println(" Playing audio...Danh ngu");
         } else {
           Serial.printf(" Base64 decode error: %d\n", ret);
           if (_oled) _oled->showStatus("Audio Error", "Decode Fail");
