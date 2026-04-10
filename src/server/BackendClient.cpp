@@ -221,6 +221,9 @@ bool BackendClient::sendAudioWav(const int16_t *samples, size_t sampleCount,
   http.addHeader("Content-Type", "multipart/form-data; boundary=" + boundary);
   
   if (token.length() > 0) {
+    http.addHeader("token", "Bearer " + token);
+    Serial.println(" [HTTP] Token attached to request.");
+  } else {
     Serial.println(" [HTTP] WARNING: No Token provided in this request!");
   }
 
