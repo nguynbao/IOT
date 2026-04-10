@@ -54,13 +54,25 @@ bool AudioPlayer::playWav(const int16_t *samples, size_t count) {
     if (!begin()) return false;
   }
 
-  size_t bytes_written = 0;
-  esp_err_t err = i2s_write(AUDIO_I2S_PORT, samples, count * sizeof(int16_t),
-                            &bytes_written, portMAX_DELAY);
+  // Đọc từ PSRAM ra bộ nhớ nội bộ rồi mới đẩy vào i2s_write, đề phòng DMA lỗi ngầm với PSRAM
+  const size_t CHUNK_SIZE = 512; // 512 samples = 1024 bytes
+  int16_t chunk_buf[CHUNK_SIZE];
 
-  if (err != ESP_OK) {
-    Serial.printf("[AUDIO] Play failed: err=%d\n", err);
-    return false;
+  for (size_t i = 0; i < count; i += CHUNK_SIZE) {
+     size_t to_write = count - i;
+     if (to_write > CHUNK_SIZE) to_write = CHUNK_SIZE;
+     
+     // Chép một đoạn từ PSRAM vào SRAM
+     memcpy(chunk_buf, &samples[i], to_write * sizeof(int16_t));
+     
+     size_t bytes_written = 0;
+     esp_err_t err = i2s_write(AUDIO_I2S_PORT, chunk_buf, to_write * sizeof(int16_t),
+                               &bytes_written, portMAX_DELAY);
+
+     if (err != ESP_OK) {
+       Serial.printf("[AUDIO] Play failed: err=%d\n", err);
+       return false;
+     }
   }
 
   return true;
@@ -70,7 +82,8 @@ void AudioPlayer::setSampleRate(int sampleRate) {
   if (!_is_init) {
     begin();
   }
-  esp_err_t err = i2s_set_clk(AUDIO_I2S_PORT, sampleRate, I2S_BITS_PER_SAMPLE_16BIT, I2S_CHANNEL_MONO);
+  // Dùng i2s_set_sample_rates giữ nguyên lại mọi cấu hình chuẩn trước đó của I2S
+  esp_err_t err = i2s_set_sample_rates(AUDIO_I2S_PORT, sampleRate);
   if (err != ESP_OK) {
     Serial.printf("[AUDIO] setSampleRate failed: %d\n", err);
   } else {

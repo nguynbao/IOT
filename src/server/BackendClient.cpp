@@ -410,6 +410,15 @@ bool BackendClient::sendAudioWav(const int16_t *samples, size_t sampleCount,
       size_t b64_len = pcmEnd - pcmStart;
       Serial.printf(" Found Base64 PCM, len: %d\n", b64_len);
       
+      // -- IN RA SERIAL ĐỂ DEBUG (python script trên MAC sẽ bắt lại và lưu) --
+      Serial.println("\n---B64_RESPONSE_START---");
+      // In theo tưng cục nhỏ để bô nhớ đệm Serial không bị tràn
+      for (size_t i = 0; i < b64_len; i += 200) {
+        size_t chunk_len = (i + 200 < b64_len) ? 200 : (b64_len - i);
+        Serial.print(audioResponse.substring(pcmStart + i, pcmStart + i + chunk_len));
+      }
+      Serial.println("\n---B64_RESPONSE_END---");
+
       size_t decoded_len = 0;
       // Tính toán buffer đầu ra trước
       mbedtls_base64_decode(NULL, 0, &decoded_len, (const unsigned char*)(audioResponse.c_str() + pcmStart), b64_len);
