@@ -17,7 +17,7 @@ public:
 
     String getText();
     bool sendImage(camera_fb_t *fb);
-    bool sendAudioWav(const int16_t *samples, size_t sampleCount, int sampleRate, const String &token, AudioPlayer &player);
+    bool sendAudioWav(const int16_t *samples, size_t sampleCount, int sampleRate, const String &token, AudioPlayer &player, bool &outGuardMode);
 
     // Verify if the face in the image matches authorized person
     // Returns true if face is recognized, false otherwise.
@@ -33,6 +33,9 @@ public:
 
     // Play current audio from /api/current
     bool playCurrentAudio(AudioPlayer &player);
+
+    // Guard mode counting people
+    int countPeopleGuardMode(camera_fb_t *fb, const String &token);
 
 private:
     const char *_baseUrl;

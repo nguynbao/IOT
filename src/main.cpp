@@ -38,6 +38,8 @@ AudioPlayer   audioPlayer;
 static bool authenticated = false;   // true sau khi xác thực mặt thành công
 static int  faceAttempts  = 0;       // Số lần thử nhận diện
 static String activeAuthToken = "";  // Token JWT dùng để gửi kèm các request
+static bool guardModeActive = false; // Trạng thái Guard Mode
+static bool guardCamInited = false;  // Trạng thái camera trong Guard Mode
 
 // ===================================================
 // HÀM PHỤ TRỢ
@@ -88,8 +90,16 @@ void doAudioCapture()
   // Gửi lên server — BackendClient sẽ tự hiển thị response lên OLED
   showInfo("Uploading", "Sending audio...");
   Serial.printf("[MAIN] Sending Audio. Token: %s\n", activeAuthToken.c_str());
-  bool ok = backend.sendAudioWav(audioBuf, n, SAMPLE_RATE, activeAuthToken, audioPlayer);
+  bool outGuardMode = false;
+  bool ok = backend.sendAudioWav(audioBuf, n, SAMPLE_RATE, activeAuthToken, audioPlayer, outGuardMode);
   heap_caps_free(audioBuf);
+
+  if (outGuardMode) {
+      guardModeActive = true;
+      Serial.println("[MAIN] Switched to GUARD MODE.");
+      showInfo("Guard Mode", "Activated");
+      return; // Bỏ qua đoạn dưới
+  }
 
   if (!ok)
   {
@@ -327,18 +337,57 @@ void loop()
   // ====================================================
   // PHASE 2: MAIN TASKS (chỉ chạy khi đã xác thực)
   // ====================================================
-  Serial.println("\n[TASK] Starting main tasks...");
+  if (guardModeActive) {
+      Serial.println("[GUARD] Taking guard picture...");
+      showInfo("Guard Mode", "Scanning...");
+      
+      if (!guardCamInited) {
+          Serial.println("[GUARD] Powering up camera...");
+          cam.init();
+          delay(1000); // Đợi ổn định cảm biến
+          guardCamInited = true;
+      }
+      
+      camera_fb_t *fb = cam.capture();
+      if (fb) {
+          // THÊM: Truyền token vào đây để tránh bị lỗi HTTP 401 Unauthorized
+          int people = backend.countPeopleGuardMode(fb, activeAuthToken);
+          cam.release(fb);
+          
+          if (people > 0) {
+              String msg = "Phat hien " + String(people) + " ng";
+              showInfo("WARNING!", msg.c_str());
+          } else {
+              showInfo("Guard Mode", "Safe - No one");
+          }
+      } else {
+          showInfo("Guard Mode", "Cam err");
+      }
+      
+      // KHÔNG deinit camera để tránh lỗi GDMA disconnect (Errno 6)
+      // esp_camera_deinit();
+      
+      // Chế độ guard mode 30s chụp 1 lần
+      delay(30000);
+  } else {
+      Serial.println("\n[TASK] Starting main tasks...");
 
-  // --- Ghi âm và gửi server ---
-  doAudioCapture();
-  delay(500);
+      // --- Ghi âm và gửi server ---
+      doAudioCapture();
+      delay(500);
 
-  // --- Hoàn thành --- 
-  Serial.println("[TASK] All tasks done — waiting before next cycle");
-  showInfo("Done!", "Waiting 20s...");
+      if (guardModeActive) {
+          // Vừa chuyển sang guard mode
+          return;
+      }
 
-  // Chờ 5 giây trước khi thực hiện lần thu âm tiếp theo
-  delay(20000);
+      // --- Hoàn thành --- 
+      Serial.println("[TASK] All tasks done — waiting before next cycle");
+      showInfo("Done!", "Waiting 20s...");
+
+      // Chờ 20 giây trước khi thực hiện lần thu âm tiếp theo
+      delay(20000);
+  }
 }
 
 // ================= END =================

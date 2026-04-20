@@ -2,14 +2,13 @@
 #include "../audio/AudioPlayer.h"
 #include "../include/ApiEndpoints.h"
 #include "../include/iot_config.h"
+#include "mbedtls/base64.h"
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <esp_heap_caps.h>
-#include <esp_heap_caps.h>
 #include <esp_task_wdt.h>
-#include "mbedtls/base64.h"
 
 static void buildWavHeader(uint8_t *header, uint32_t dataSize,
                            uint32_t sampleRate) {
@@ -94,7 +93,8 @@ String BackendClient::getText() {
 //     return false;
 //   }
 
-//   Serial.printf(" WiFi connected, IP: %s\n", WiFi.localIP().toString().c_str());
+//   Serial.printf(" WiFi connected, IP: %s\n",
+//   WiFi.localIP().toString().c_str());
 
 //   HTTPClient http;
 //   String url = String(_baseUrl) + String(API_URL_UPLOAD_IMG);
@@ -180,19 +180,27 @@ String BackendClient::getText() {
 // KHÔNG dùng Malloc cho Buffer gộp, siêu tiết kiệm bộ nhớ!
 // ==============================================
 class MultipartStream : public Stream {
-  const char *_head; size_t _head_len;
+  const char *_head;
+  size_t _head_len;
   const uint8_t *_wavHeader;
-  const uint8_t *_samples; size_t _samples_len;
-  const char *_tail; size_t _tail_len;
-  size_t _pos; size_t _totalLen;
+  const uint8_t *_samples;
+  size_t _samples_len;
+  const char *_tail;
+  size_t _tail_len;
+  size_t _pos;
+  size_t _totalLen;
 
 public:
-  MultipartStream(const char *head, size_t head_len, const uint8_t *wavHeader, 
-                  const uint8_t *samples, size_t samples_len, const char *tail, size_t tail_len) {
-    _head = head; _head_len = head_len;
+  MultipartStream(const char *head, size_t head_len, const uint8_t *wavHeader,
+                  const uint8_t *samples, size_t samples_len, const char *tail,
+                  size_t tail_len) {
+    _head = head;
+    _head_len = head_len;
     _wavHeader = wavHeader;
-    _samples = samples; _samples_len = samples_len;
-    _tail = tail; _tail_len = tail_len;
+    _samples = samples;
+    _samples_len = samples_len;
+    _tail = tail;
+    _tail_len = tail_len;
     _totalLen = _head_len + 44 + _samples_len + _tail_len;
     _pos = 0;
   }
@@ -202,46 +210,53 @@ public:
 
   virtual size_t readBytes(uint8_t *buffer, size_t length) {
     size_t to_read = _totalLen - _pos;
-    if (to_read > length) to_read = length;
-    if (to_read == 0) return 0;
+    if (to_read > length)
+      to_read = length;
+    if (to_read == 0)
+      return 0;
 
     size_t bytes_read = 0;
     while (bytes_read < to_read) {
       if (_pos < _head_len) {
         size_t chunk = _head_len - _pos;
-        if (chunk > to_read - bytes_read) chunk = to_read - bytes_read;
+        if (chunk > to_read - bytes_read)
+          chunk = to_read - bytes_read;
         memcpy(buffer + bytes_read, _head + _pos, chunk);
-        _pos += chunk; bytes_read += chunk;
-      }
-      else if (_pos < _head_len + 44) {
+        _pos += chunk;
+        bytes_read += chunk;
+      } else if (_pos < _head_len + 44) {
         size_t off = _pos - _head_len;
         size_t chunk = 44 - off;
-        if (chunk > to_read - bytes_read) chunk = to_read - bytes_read;
+        if (chunk > to_read - bytes_read)
+          chunk = to_read - bytes_read;
         memcpy(buffer + bytes_read, _wavHeader + off, chunk);
-        _pos += chunk; bytes_read += chunk;
-      }
-      else if (_pos < _head_len + 44 + _samples_len) {
+        _pos += chunk;
+        bytes_read += chunk;
+      } else if (_pos < _head_len + 44 + _samples_len) {
         size_t off = _pos - _head_len - 44;
         size_t chunk = _samples_len - off;
-        if (chunk > to_read - bytes_read) chunk = to_read - bytes_read;
+        if (chunk > to_read - bytes_read)
+          chunk = to_read - bytes_read;
         memcpy(buffer + bytes_read, _samples + off, chunk);
-        _pos += chunk; bytes_read += chunk;
-      }
-      else {
+        _pos += chunk;
+        bytes_read += chunk;
+      } else {
         size_t off = _pos - _head_len - 44 - _samples_len;
         size_t chunk = _tail_len - off;
-        if (chunk > to_read - bytes_read) chunk = to_read - bytes_read;
+        if (chunk > to_read - bytes_read)
+          chunk = to_read - bytes_read;
         memcpy(buffer + bytes_read, _tail + off, chunk);
-        _pos += chunk; bytes_read += chunk;
+        _pos += chunk;
+        bytes_read += chunk;
       }
     }
-    
+
     // Nuôi WDT
     delay(2);
     esp_task_wdt_reset();
     return to_read;
   }
-  
+
   virtual size_t readBytes(char *buffer, size_t length) {
     return readBytes((uint8_t *)buffer, length);
   }
@@ -253,7 +268,8 @@ public:
 
 bool BackendClient::sendAudioWav(const int16_t *samples, size_t sampleCount,
                                  int sampleRate, const String &token,
-                                 AudioPlayer &player) {
+                                 AudioPlayer &player, bool &outGuardMode) {
+  outGuardMode = false;
   if (!samples || sampleCount == 0) {
     Serial.println(" Invalid audio buffer");
     return false;
@@ -358,11 +374,13 @@ bool BackendClient::sendAudioWav(const int16_t *samples, size_t sampleCount,
 
   // --- Bước 1: Đọc raw JSON body vào PSRAM ---
   WiFiClient *jsonStream = http.getStreamPtr();
-  const size_t JSON_BUF_MAX = 700 * 1024; // 700KB đủ cho ~430KB Base64 + overhead
+  const size_t JSON_BUF_MAX =
+      700 * 1024; // 700KB đủ cho ~430KB Base64 + overhead
   char *jsonBuf = (char *)heap_caps_malloc(JSON_BUF_MAX + 1, MALLOC_CAP_SPIRAM);
   if (!jsonBuf) {
     Serial.println(" Cannot alloc PSRAM for JSON buffer");
-    if (_oled) _oled->showStatus("Mem Error", "No PSRAM");
+    if (_oled)
+      _oled->showStatus("Mem Error", "No PSRAM");
     http.end();
     return false;
   }
@@ -372,7 +390,8 @@ bool BackendClient::sendAudioWav(const int16_t *samples, size_t sampleCount,
   while ((millis() - t0) < 30000UL) { // timeout 30s đọc body
     if (jsonStream->available()) {
       int c = jsonStream->read();
-      if (c < 0) break;
+      if (c < 0)
+        break;
       if (jsonLen < JSON_BUF_MAX)
         jsonBuf[jsonLen++] = (char)c;
     } else if (!http.connected()) {
@@ -385,6 +404,9 @@ bool BackendClient::sendAudioWav(const int16_t *samples, size_t sampleCount,
   http.end(); // Giải phóng network ngay
 
   Serial.printf(" JSON body size: %u bytes\n", jsonLen);
+  if (jsonLen > 0 && jsonLen < 500) {
+    Serial.printf(" Raw response: %s\n", jsonBuf);
+  }
 
   if (jsonLen == 0) {
     Serial.println(" Empty response body");
@@ -400,7 +422,8 @@ bool BackendClient::sendAudioWav(const int16_t *samples, size_t sampleCount,
     p = strchr(p, ':');
     if (p) {
       p++;
-      while (*p == ' ' || *p == '"') p++;
+      while (*p == ' ' || *p == '"')
+        p++;
       size_t i = 0;
       while (*p && *p != '"' && i < sizeof(bot_response) - 1)
         bot_response[i++] = *p++;
@@ -411,11 +434,23 @@ bool BackendClient::sendAudioWav(const int16_t *samples, size_t sampleCount,
   // Tìm "framerate": N, "n_channels": N, "sampwidth": N
   int fr = 0, n_channels = 1, sampwidth = 2;
   const char *pFr = strstr(jsonBuf, "\"framerate\"");
-  if (pFr) { pFr = strchr(pFr, ':'); if (pFr) sscanf(pFr + 1, " %d", &fr); }
+  if (pFr) {
+    pFr = strchr(pFr, ':');
+    if (pFr)
+      sscanf(pFr + 1, " %d", &fr);
+  }
   const char *pCh = strstr(jsonBuf, "\"n_channels\"");
-  if (pCh) { pCh = strchr(pCh, ':'); if (pCh) sscanf(pCh + 1, " %d", &n_channels); }
+  if (pCh) {
+    pCh = strchr(pCh, ':');
+    if (pCh)
+      sscanf(pCh + 1, " %d", &n_channels);
+  }
   const char *pSw = strstr(jsonBuf, "\"sampwidth\"");
-  if (pSw) { pSw = strchr(pSw, ':'); if (pSw) sscanf(pSw + 1, " %d", &sampwidth); }
+  if (pSw) {
+    pSw = strchr(pSw, ':');
+    if (pSw)
+      sscanf(pSw + 1, " %d", &sampwidth);
+  }
 
   // Tìm "pcm_b64":"..." — chỉ lấy con trỏ + độ dài, KHÔNG copy thêm
   const char *pcm_b64_start = nullptr;
@@ -425,21 +460,45 @@ bool BackendClient::sendAudioWav(const int16_t *samples, size_t sampleCount,
     pB64 = strchr(pB64, ':');
     if (pB64) {
       pB64++;
-      while (*pB64 == ' ') pB64++;
+      while (*pB64 == ' ')
+        pB64++;
       if (*pB64 == '"') {
         pB64++; // bỏ dấu " mở
         pcm_b64_start = pB64;
         const char *pEnd = strchr(pB64, '"');
-        if (pEnd) b64_len = pEnd - pB64;
+        if (pEnd)
+          b64_len = pEnd - pB64;
       }
     }
   }
 
   Serial.printf(" Bot: %s\n", bot_response);
-  Serial.printf(" Base64 length: %u\n", b64_len);
-  Serial.printf(" framerate=%d  channels=%d  sampwidth=%d\n", fr, n_channels, sampwidth);
 
-  if (fr > 0) player.setSampleRate(fr);
+  // -- Check cho Guard Mode --
+  // Chuyển bot_response tạm sang chữ thường để kiểm tra
+  char lowerMsg[256];
+  for (int i = 0; i < sizeof(bot_response) && bot_response[i] != '\0'; i++) {
+    lowerMsg[i] = tolower(bot_response[i]);
+  }
+  lowerMsg[sizeof(bot_response) - 1] = '\0';
+
+  if (strstr(lowerMsg, "guard mode") != nullptr ||
+      strstr(lowerMsg, "canh gác") != nullptr ||
+      strstr(lowerMsg, "canh gac") != nullptr) {
+    outGuardMode = true;
+    Serial.println(" --- GUARD MODE DETECTED FROM BOT RESPONSE ---");
+  } else if (strstr(jsonBuf, "\"guard_mode_active\":true") != nullptr ||
+             strstr(jsonBuf, "\"guard_mode_active\": true") != nullptr) {
+    outGuardMode = true;
+    Serial.println(" --- GUARD MODE DETECTED FROM JSON KEY ---");
+  }
+
+  Serial.printf(" Base64 length: %u\n", b64_len);
+  Serial.printf(" framerate=%d  channels=%d  sampwidth=%d\n", fr, n_channels,
+                sampwidth);
+
+  if (fr > 0)
+    player.setSampleRate(fr);
 
   if (pcm_b64_start && b64_len > 0) {
     // -- IN RA SERIAL ĐỂ DEBUG --
@@ -456,7 +515,8 @@ bool BackendClient::sendAudioWav(const int16_t *samples, size_t sampleCount,
                           (const unsigned char *)pcm_b64_start, b64_len);
 
     if (decoded_len > 0) {
-      uint8_t *pcm_buf = (uint8_t *)heap_caps_malloc(decoded_len, MALLOC_CAP_SPIRAM);
+      uint8_t *pcm_buf =
+          (uint8_t *)heap_caps_malloc(decoded_len, MALLOC_CAP_SPIRAM);
       if (pcm_buf) {
         size_t written = 0;
         int ret = mbedtls_base64_decode(pcm_buf, decoded_len, &written,
@@ -470,12 +530,14 @@ bool BackendClient::sendAudioWav(const int16_t *samples, size_t sampleCount,
           Serial.println(" Playing audio...Danh ngu");
         } else {
           Serial.printf(" Base64 decode error: %d\n", ret);
-          if (_oled) _oled->showStatus("Audio Error", "Decode Fail");
+          if (_oled)
+            _oled->showStatus("Audio Error", "Decode Fail");
         }
         heap_caps_free(pcm_buf);
       } else {
         Serial.println(" No PSRAM for PCM buffer");
-        if (_oled) _oled->showStatus("Memory Error", "Out Of Mem");
+        if (_oled)
+          _oled->showStatus("Memory Error", "Out Of Mem");
       }
     }
   } else {
@@ -486,6 +548,92 @@ bool BackendClient::sendAudioWav(const int16_t *samples, size_t sampleCount,
   return true;
 }
 
+int BackendClient::countPeopleGuardMode(camera_fb_t *fb, const String &token) {
+  if (!fb || fb->len == 0) {
+    Serial.println(" Invalid frame buffer");
+    return -1;
+  }
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println(" WiFi not connected");
+    return -1;
+  }
+
+  HTTPClient http;
+  String url = String(_baseUrl) + String(API_URL_GUARD_MODE);
+  Serial.println(" POST " + url);
+  Serial.printf(" Face image size: %d bytes\n", fb->len);
+
+  http.begin(url);
+  http.setTimeout(65000);
+  http.setConnectTimeout(5000);
+
+  String boundary = "ESP32GuardBoundary";
+  String contentType = "multipart/form-data; boundary=" + boundary;
+  http.addHeader("Content-Type", contentType);
+
+  if (token.length() > 0) {
+    http.addHeader("token", "Bearer " + token);
+    Serial.println(" [HTTP] Token attached to guard mode request.");
+  } else {
+    Serial.println(" [HTTP] WARNING: No Token provided in guard mode request!");
+  }
+
+  String head = "--" + boundary +
+                "\r\n"
+                "Content-Disposition: form-data; name=\"image\"; "
+                "filename=\"guard.jpg\"\r\n"
+                "Content-Type: image/jpeg\r\n\r\n";
+
+  String tail = "\r\n--" + boundary + "--\r\n";
+
+  size_t totalLen = head.length() + fb->len + tail.length();
+
+  uint8_t *body = (uint8_t *)heap_caps_malloc(totalLen, MALLOC_CAP_SPIRAM);
+  if (!body) {
+    Serial.println(" Not enough memory for guard mode upload (PSRAM)");
+    http.end();
+    return -1;
+  }
+
+  memcpy(body, head.c_str(), head.length());
+  memcpy(body + head.length(), fb->buf, fb->len);
+  memcpy(body + head.length() + fb->len, tail.c_str(), tail.length());
+
+  int code = http.POST(body, totalLen);
+  heap_caps_free(body);
+
+  if (code <= 0) {
+    Serial.printf(" Guard mode upload failed: %s (code: %d)\n",
+                  http.errorToString(code).c_str(), code);
+    http.end();
+    return -1;
+  }
+
+  if (code != 200) {
+    Serial.printf(" Guard mode upload failed: HTTP %d\n", code);
+    http.end();
+    return -1;
+  }
+
+  String response = http.getString();
+  Serial.println(" Guard mode response:");
+  Serial.println(response);
+
+  StaticJsonDocument<256> doc;
+  DeserializationError error = deserializeJson(doc, response);
+
+  http.end();
+
+  if (error) {
+    Serial.print(" JSON parse error: ");
+    Serial.println(error.c_str());
+    return -1;
+  }
+
+  int num_people = doc["num_people"] | 0;
+  return num_people;
+}
 
 // ==================== Download & Play WAV from Server ====================
 
@@ -780,7 +928,7 @@ bool BackendClient::verifyFace(camera_fb_t *fb, String &outToken) {
 
   if (isRecognized) {
     Serial.printf(" Face recognized! %s\n", personMsg.c_str());
-    
+
     // Extract long JWT token
     outToken = doc["token"].as<String>();
 
@@ -847,11 +995,13 @@ bool BackendClient::verifyFace(camera_fb_t *fb, String &outToken) {
 
 //   // Lấy thông tin cơ bản từ header (offset chuẩn)
 //   uint16_t channels = tempBuf[22] | (tempBuf[23] << 8);
-//   uint32_t sampleRate = tempBuf[24] | (tempBuf[25] << 8) | (tempBuf[26] << 16) |
+//   uint32_t sampleRate = tempBuf[24] | (tempBuf[25] << 8) | (tempBuf[26] <<
+//   16) |
 //                         (tempBuf[27] << 24);
 //   uint16_t bitsPerSample = tempBuf[34] | (tempBuf[35] << 8);
 
-//   Serial.printf(" WAV: %dHz, %dbit, %d channel(s)\n", sampleRate, bitsPerSample,
+//   Serial.printf(" WAV: %dHz, %dbit, %d channel(s)\n", sampleRate,
+//   bitsPerSample,
 //                 channels);
 
 //   // 3. Vòng lặp Stream dữ liệu
@@ -882,8 +1032,8 @@ bool BackendClient::verifyFace(camera_fb_t *fb, String &outToken) {
 //           sample = (int16_t)(tempBuf[off] | (tempBuf[off + 1] << 8));
 //         } else {
 //           int16_t left = (int16_t)(tempBuf[off] | (tempBuf[off + 1] << 8));
-//           int16_t right = (int16_t)(tempBuf[off + 2] | (tempBuf[off + 3] << 8));
-//           sample = (left + right) / 2;
+//           int16_t right = (int16_t)(tempBuf[off + 2] | (tempBuf[off + 3] <<
+//           8)); sample = (left + right) / 2;
 //         }
 
 //         // Kích âm lượng lên GAIN_FACTOR lần
@@ -904,7 +1054,8 @@ bool BackendClient::verifyFace(camera_fb_t *fb, String &outToken) {
 //       // Xử lý dữ liệu dư không đủ 1 frame
 //       leftoverLen = totalInBuf % frameBytes;
 //       if (leftoverLen > 0) {
-//         memmove(tempBuf, tempBuf + (framesToProcess * frameBytes), leftoverLen);
+//         memmove(tempBuf, tempBuf + (framesToProcess * frameBytes),
+//         leftoverLen);
 //       }
 //       lastDataTime = millis();
 //     } else {

@@ -13,6 +13,6 @@
 #define API_URL_UPLOAD_AUDIO "/audio/receive"
 
 //người gắc cổng
-#define API_URL_GUARD_MODE "/guard-mode/count_people"
+#define API_URL_GUARD_MODE "/guard_mode/upload"
 
 #endif
