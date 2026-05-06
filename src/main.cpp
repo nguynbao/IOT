@@ -191,6 +191,8 @@ void setup()
   }
 
   // ---- Check Authentication Token ----
+  // Đã tắt tính năng tự động bypass auth bằng token cũ để bắt buộc quét mặt mỗi khi khởi động
+  /*
   Preferences authPrefs;
   authPrefs.begin("auth", true); // read-only
   String savedToken = authPrefs.getString("token", "");
@@ -206,6 +208,7 @@ void setup()
     authPrefs.remove("token");
     authPrefs.end();
   }
+  */
 
   // ---- Audio Player ----
   Serial.println("[INIT] Audio player...");
